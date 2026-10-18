@@ -11,13 +11,14 @@ Use for full-size image inspection; keep images optimized.
 
 ### API
 - Required: \`src\`.
-- Optional: \`alt\` text.
+- Optional: \`alt\` text, and \`origin\`, the image on the page that the preview grows out of and shrinks back into.
 
 ### Variants and states
 - Single layout with zoom controls and a close action.
 
 ### Behavior
 - Intended to be used via \`useDialog().show\`.
+- With an \`origin\`, the image flies from its place on the page to the preview while the page dims, and back on close.
 - Pinch or Cmd/Ctrl + wheel zooms at the cursor; wheel and drag pan while zoomed.
 - Double-click toggles between fit and 100%; Cmd/Ctrl + =, - and 0 zoom in, out and to fit.
 
@@ -76,6 +77,83 @@ export const Screenshot = {
       </Button>
     )
   },
+}
+
+// Images in a message open from where they sit and close back into place: a full-width image and a cropped thumbnail.
+export const FromMessage = {
+  render: () => {
+    const dialog = useDialog()
+    const src = poster()
+
+    const open = (event: MouseEvent & { currentTarget: HTMLImageElement }) => {
+      const origin = event.currentTarget
+      dialog.show(() => <mod.ImagePreview src={src} alt={origin.alt} origin={origin} />)
+    }
+
+    return (
+      <div style={{ width: "640px", margin: "48px auto", display: "flex", "flex-direction": "column", gap: "16px" }}>
+        <div style={{ display: "flex", "justify-content": "flex-end" }}>
+          <img
+            data-story-image="thumbnail"
+            src={src}
+            alt="Poster thumbnail"
+            onClick={open}
+            style={{ width: "58px", height: "46px", "object-fit": "cover", "border-radius": "6px", cursor: "pointer" }}
+          />
+        </div>
+        <p>Here is the poster for the garden open day, with the new colours.</p>
+        <img
+          data-story-image="inline"
+          src={src}
+          alt="Garden open day poster"
+          onClick={open}
+          style={{ width: "100%", "border-radius": "8px", cursor: "zoom-in" }}
+        />
+        <p>The hills use the brand greens, and the date sits on the sun.</p>
+      </div>
+    )
+  },
+}
+
+// A bright, offline poster, so the image reads clearly against the dimmed page while it moves.
+function poster() {
+  const canvas = document.createElement("canvas")
+  canvas.width = 1600
+  canvas.height = 1000
+  const ctx = canvas.getContext("2d")
+  const sky = ctx.createLinearGradient(0, 0, 0, 1000)
+  sky.addColorStop(0, "#ff8a5b")
+  sky.addColorStop(1, "#ffd27a")
+  ctx.fillStyle = sky
+  ctx.fillRect(0, 0, 1600, 1000)
+  ctx.fillStyle = "#fff4d6"
+  ctx.beginPath()
+  ctx.arc(1120, 360, 170, 0, Math.PI * 2)
+  ctx.fill()
+  ;[
+    ["#3f9d5a", 700, 0.0],
+    ["#2f7d48", 790, 1.7],
+    ["#1f5c36", 880, 3.1],
+  ].forEach(([color, base, phase]) => {
+    ctx.fillStyle = color
+    ctx.beginPath()
+    ctx.moveTo(0, 1000)
+
+    for (let x = 0; x <= 1600; x += 20) ctx.lineTo(x, base - 70 * Math.sin(x / 260 + phase))
+    ctx.lineTo(1600, 1000)
+    ctx.fill()
+  })
+  ctx.fillStyle = "#1f2a44"
+  ctx.font = "800 120px -apple-system, system-ui, sans-serif"
+  ctx.fillText("Garden open day", 110, 230)
+  ctx.font = "600 52px -apple-system, system-ui, sans-serif"
+  ctx.fillText("Lumen Garden · 12 April", 116, 310)
+  ctx.fillStyle = "#c2410c"
+  ctx.font = "800 64px -apple-system, system-ui, sans-serif"
+  ctx.textAlign = "center"
+  ctx.fillText("12.4", 1120, 382)
+
+  return canvas.toDataURL("image/png")
 }
 
 function screenshot() {

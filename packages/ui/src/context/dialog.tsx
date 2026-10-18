@@ -27,6 +27,8 @@ type Active = {
   owner: Owner
   onClose?: () => void
   setClosing: (closing: boolean) => void
+  /** How long the dialog stays mounted once it starts closing, so its exit animation can finish. */
+  exit: () => number
   /** Where focus was before this dialog opened, or before the dialogs it replaced opened. */
   focus?: FocusReturn
   returnFocus: () => void
@@ -34,8 +36,11 @@ type Active = {
 
 const Context = createContext<ReturnType<typeof init>>()
 
-// Lets the dialog rendered in a layer opt out of closing on a backdrop click.
-const LayerContext = createContext<{ setBackdropDismiss: (value: boolean) => void }>()
+// Lets the dialog rendered in a layer opt out of closing on a backdrop click, or ask for a longer exit animation.
+const LayerContext = createContext<{
+  setBackdropDismiss: (value: boolean) => void
+  setExitDuration: (ms: number) => void
+}>()
 
 export function useDialogLayer() {
   return useContext(LayerContext)
@@ -84,7 +89,7 @@ function init() {
         setExiting((ids) => new Set([...ids].filter((id) => id !== current.id)))
         setStack((items) => items.filter((item) => item.id !== current.id))
         current.dispose()
-      }, 100),
+      }, current.exit()),
     )
     setExiting((ids) => new Set([...ids, current.id]))
     isolate(() => current.onClose?.())
@@ -153,6 +158,7 @@ function init() {
     let dispose: (() => void) | undefined
     let setClosing: ((closing: boolean) => void) | undefined
     let layerRef: HTMLDivElement | undefined
+    let exit = 100
 
     // Stacked dialogs render as sibling portals, so only the top layer may own the focus trap.
     const node = runWithOwner(owner, () =>
@@ -191,7 +197,9 @@ function init() {
                   "pointer-events": "none",
                 }}
               >
-                <LayerContext.Provider value={{ setBackdropDismiss }}>{element()}</LayerContext.Provider>
+                <LayerContext.Provider value={{ setBackdropDismiss, setExitDuration: (ms) => (exit = ms) }}>
+                  {element()}
+                </LayerContext.Provider>
               </div>
             </Kobalte.Portal>
           </Kobalte>
@@ -208,6 +216,7 @@ function init() {
       owner,
       onClose,
       setClosing,
+      exit: () => exit,
       focus,
       returnFocus: () => {
         // A close inside a reactive update unmounts the dialog, and its focus trap, only when the update ends.

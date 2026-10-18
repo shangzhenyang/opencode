@@ -584,7 +584,7 @@ export function ComposerAttachments(props: {
   files?: Extract<ComposerComment, { type: "file" }>[]
   activeCommentID?: string
   removeLabel: string
-  onAttachmentClick?: (attachment: ComposerAttachment) => void
+  onAttachmentClick?: (attachment: ComposerAttachment, origin: HTMLElement) => void
   onAttachmentRemove: (attachment: ComposerAttachment) => void
   onUploadCancel?: (upload: Upload) => void
   onCommentClick?: (comment: ComposerComment) => void
@@ -696,7 +696,7 @@ export function ComposerAttachments(props: {
                               src={url() ?? ""}
                               alt={attachment.filename}
                               class="w-[58px] h-[46px] rounded-[6px] object-cover"
-                              onClick={() => props.onAttachmentClick?.(attachment)}
+                              onClick={(event) => props.onAttachmentClick?.(attachment, event.currentTarget)}
                             />
                           </Suspense>
                           <div class="absolute inset-0 rounded-[6px] shadow-[inset_0_0_0_0.5px_var(--v2-border-border-base)] pointer-events-none" />

@@ -1,28 +1,54 @@
-import { Dialog as Kobalte } from "@kobalte/core/dialog"
+import { Dialog as Kobalte, useDialogContext } from "@kobalte/core/dialog"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { animate, type AnimationPlaybackControls } from "motion"
 import { createEffect, createMemo, createSignal, on, onCleanup } from "solid-js"
+import { useDialogLayer } from "../context/dialog"
 import { useI18n } from "../context/i18n"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
+import { elementFrame, flightKeyframes, intersect, lerpFrame, type Box, type FlightFrame } from "./image-flight"
 import { clampView, detailScale, FIT_VIEW, maxScale, panBy, wheelZoomFactor, zoomAt, type ZoomView } from "./image-zoom"
 
 export interface ImagePreviewProps {
   src: string
   alt?: string
+  /** The image on the page that the preview grows out of and shrinks back into. */
+  origin?: HTMLElement
 }
 
 const STEP = Math.SQRT2
+
+// Matched to Claude's desktop preview, measured frame by frame: a strong ease-out with no overshoot, and a close
+// about a third shorter than the open. The backdrop dims over the same time on a gentler curve.
+const OPEN = 280
+
+const CLOSE = 180
+
+const FLIGHT_EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)"
+
+const FADE = 150
+
+// How long the dialog stays mounted after a close starts, with a few frames' slack for the flight to land.
+const EXIT = CLOSE + 50
 
 const CENTER = { x: 0, y: 0 }
 
 export function ImagePreview(props: ImagePreviewProps) {
   const i18n = useI18n()
+  const dialog = useDialogContext()
+  let scrim!: HTMLDivElement
+  let content!: HTMLDivElement
   let viewport!: HTMLDivElement
   let image!: HTMLImageElement
+  let flight!: HTMLImageElement
   let close: HTMLButtonElement | undefined
+  // Nothing shows until the image has loaded and the preview knows where it lands; while flying, a stand-in image
+  // travels above the dialog in place of the real one.
+  const [stage, setStage] = createSignal<"pending" | "flying" | "rest">("pending")
+  // The latest flight: where the stand-in is laid out (the flight only transforms and clips it), and its two ends.
+  let course: { at: Box; from: FlightFrame; to: FlightFrame; animation: Animation } | undefined
   const [view, setView] = createSignal(FIT_VIEW)
   const [fitRatio, setFitRatio] = createSignal(1)
   const [drag, setDrag] = createSignal<{ id: number; x: number; y: number }>()
@@ -52,7 +78,7 @@ export function ImagePreview(props: ImagePreviewProps) {
     animation?.stop()
     goal = target
 
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return setView(target)
+    if (reduced()) return setView(target)
     const from = view()
     animation = animate(0, 1, {
       type: "spring",
@@ -68,6 +94,136 @@ export function ImagePreview(props: ImagePreviewProps) {
   }
 
   const step = (factor: number) => ease(zoomAt(goal, goal.scale * factor, CENTER, bounds()))
+
+  // Kobalte keeps the content mounted while an exit animation runs; the dialog stack waits for the flight too.
+  useDialogLayer()?.setExitDuration(EXIT)
+
+  const reveal = async () => {
+    await Promise.all([image.decode(), flight.decode()]).catch(() => undefined)
+
+    if (stage() !== "pending" || !dialog.isOpen()) return
+    const from = reduced() ? undefined : originFrame()
+
+    // Fade from the hidden pending state before leaving it. The panel settles in around the image as it lands.
+    fade(content, 1, from ? OPEN * 0.6 : FADE, from ? OPEN * 0.4 : 0)
+    fade(scrim, 1, from ? OPEN : FADE)
+
+    if (!from) return setStage("rest")
+    const at = place(fitted())
+    hideOrigin()
+    setStage("flying")
+    void fly(at, from, restFrame(), OPEN).then((done) => done && setStage("rest"))
+  }
+
+  const dismiss = () => {
+    animation?.stop()
+
+    if (stage() === "pending") return
+    const to = reduced() ? undefined : originFrame()
+
+    // The panel clears before the image leaves it.
+    fade(content, 0, to ? CLOSE / 2 : FADE)
+    fade(scrim, 0, to ? CLOSE : FADE)
+
+    if (!to) {
+      // A stand-in still opening keeps its course as it fades.
+      flight.animate({ opacity: [1, 0] }, { duration: FADE, easing: "ease", fill: "both" })
+      content.animate({ transform: ["none", "scale(0.96)"] }, { duration: FADE, easing: "ease", fill: "both" })
+
+      return
+    }
+
+    // A close mid-open turns around from the frame on screen.
+    const turning = stage() === "flying" ? course : undefined
+    const progress = turning?.animation.effect?.getComputedTiming().progress
+    const from = turning && progress != null ? lerpFrame(turning.from, turning.to, progress) : restFrame()
+    const at = turning?.at ?? place(fitted())
+    hideOrigin()
+    setStage("flying")
+    void fly(at, from, to, CLOSE).then((done) => done && showOrigin())
+  }
+
+  const place = (box: Box) => {
+    Object.assign(flight.style, {
+      left: `${box.x}px`,
+      top: `${box.y}px`,
+      width: `${box.width}px`,
+      height: `${box.height}px`,
+    })
+
+    return box
+  }
+
+  const fly = (at: Box, from: FlightFrame, to: FlightFrame, duration: number) => {
+    cancel(flight)
+    const animation = flight.animate(flightKeyframes(at, from, to), { duration, easing: FLIGHT_EASING, fill: "both" })
+    course = { at, from, to, animation }
+
+    return animation.finished.then(
+      () => true,
+      () => false,
+    )
+  }
+
+  // The image as shown now: zoomed and panned, and cropped to the viewport.
+  const restFrame = (): FlightFrame => {
+    const shown = image.getBoundingClientRect()
+    const clip = intersect(shown, viewport.getBoundingClientRect())
+    const cropped = clip.width < shown.width - 0.5 || clip.height < shown.height - 0.5
+
+    return {
+      image: shown,
+      clip,
+      radius: cropped ? 0 : parseFloat(getComputedStyle(image).borderTopLeftRadius) * view().scale,
+    }
+  }
+
+  // The origin's frame, or nothing when it is gone or scrolled out of sight.
+  const originFrame = () => {
+    const origin = props.origin
+
+    if (!origin?.isConnected || !image.naturalWidth) return
+    const rect = origin.getBoundingClientRect()
+
+    if (!rect.width || !rect.height) return
+
+    if (rect.bottom <= 0 || rect.right <= 0 || rect.top >= window.innerHeight || rect.left >= window.innerWidth) return
+    const style = getComputedStyle(origin)
+
+    return elementFrame(
+      rect,
+      { width: image.naturalWidth, height: image.naturalHeight },
+      style.objectFit,
+      parseFloat(style.borderTopLeftRadius) || 0,
+    )
+  }
+
+  // The image's fitted layout box, wherever zoom has moved it.
+  const fitted = (): Box => {
+    const shown = image.getBoundingClientRect()
+
+    return {
+      x: shown.x + shown.width / 2 - view().x - image.offsetWidth / 2,
+      y: shown.y + shown.height / 2 - view().y - image.offsetHeight / 2,
+      width: image.offsetWidth,
+      height: image.offsetHeight,
+    }
+  }
+
+  const hideOrigin = () => props.origin?.setAttribute("data-image-preview-origin", "")
+  const showOrigin = () => props.origin?.removeAttribute("data-image-preview-origin")
+
+  onCleanup(showOrigin)
+
+  createEffect(
+    on(
+      () => dialog.isOpen(),
+      (open) => {
+        if (!open) dismiss()
+      },
+      { defer: true },
+    ),
+  )
 
   const point = (event: MouseEvent) => {
     const rect = viewport.getBoundingClientRect()
@@ -148,9 +304,11 @@ export function ImagePreview(props: ImagePreviewProps) {
   )
 
   return (
-    <div data-component="image-preview">
+    <div data-component="image-preview" data-stage={stage()} style={{ "--image-preview-exit": `${EXIT}ms` }}>
+      <div ref={scrim} data-slot="image-preview-scrim" />
       <div data-slot="image-preview-container">
         <Kobalte.Content
+          ref={content}
           data-slot="image-preview-content"
           onOpenAutoFocus={(event) => {
             // Open with focus on Close, as before, rather than on the zoom controls that now precede it.
@@ -229,14 +387,39 @@ export function ImagePreview(props: ImagePreviewProps) {
               alt={props.alt ?? i18n.t("ui.imagePreview.alt")}
               data-slot="image-preview-image"
               draggable={false}
-              onLoad={measure}
+              onLoad={() => {
+                measure()
+                void reveal()
+              }}
+              onError={() => void reveal()}
               style={{ transform: `translate(${view().x}px, ${view().y}px) scale(${view().scale})` }}
             />
           </div>
         </Kobalte.Content>
       </div>
+      <img data-slot="image-preview-flight" src={props.src} alt="" aria-hidden="true" ref={flight} />
     </div>
   )
+}
+
+function reduced() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
+}
+
+/** Animates opacity from wherever an earlier fade left the element. */
+function fade(element: HTMLElement, opacity: number, duration: number, delay = 0) {
+  const from = getComputedStyle(element).opacity
+
+  cancel(element)
+  element.animate({ opacity: [from, String(opacity)] }, { duration, delay, easing: "ease", fill: "both" })
+}
+
+/** Stops this preview's own animations, leaving CSS ones such as the content's exit hold to Kobalte. */
+function cancel(element: HTMLElement) {
+  element
+    .getAnimations()
+    .filter((running) => !(running instanceof CSSAnimation))
+    .forEach((running) => running.cancel())
 }
 
 function shortcut(key: string) {

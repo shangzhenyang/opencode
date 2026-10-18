@@ -63,7 +63,7 @@ export function createComposerEditor(input: {
   commands: Accessor<ComposerSuggestion[]>
   context: Accessor<ComposerSuggestion[]>
   searchContextFiles: (query: string) => ComposerSuggestion[] | Promise<ComposerSuggestion[]>
-  openAttachment?: (attachment: ComposerAttachment) => void
+  openAttachment?: (attachment: ComposerAttachment, origin?: HTMLElement) => void
   openContext?: (key: string) => void
   onContextRemove?: (item: ComposerComment) => void
   onEditor?: (element: HTMLElement) => void
@@ -407,8 +407,8 @@ export function createComposerEditor(input: {
 
       if (state.activeContextID === id) dispatch({ type: "context.active", id })
     },
-    openAttachment(attachment: ComposerAttachment) {
-      input.openAttachment?.(attachment)
+    openAttachment(attachment: ComposerAttachment, origin?: HTMLElement) {
+      input.openAttachment?.(attachment, origin)
     },
     removeAttachment(id: string) {
       draft.removeAttachment(id)

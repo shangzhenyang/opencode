@@ -6,6 +6,39 @@
   align-items: center;
   justify-content: center;
 
+  /* The preview dims the page itself, in step with the image's flight, instead of the dialog stack's overlay. */
+  [data-slot="image-preview-scrim"] {
+    position: fixed;
+    inset: 0;
+    background-color: var(--v2-overlay-simple-overlay-scrim);
+    pointer-events: none;
+  }
+
+  [data-slot="image-preview-flight"] {
+    display: none;
+    position: fixed;
+    z-index: 51;
+    max-width: none;
+    max-height: none;
+    transform-origin: 0 0;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  &[data-stage="pending"] :is([data-slot="image-preview-scrim"], [data-slot="image-preview-content"]) {
+    opacity: 0;
+  }
+
+  &[data-stage="flying"] {
+    [data-slot="image-preview-flight"] {
+      display: block;
+    }
+
+    [data-slot="image-preview-image"] {
+      visibility: hidden;
+    }
+  }
+
   [data-slot="image-preview-container"] {
     position: relative;
     z-index: 50;
@@ -33,6 +66,11 @@
 
       &:focus-visible {
         outline: none;
+      }
+
+      /* Kobalte unmounts closed content once its CSS animation ends, so this holds it for the closing flight. */
+      &[data-closed] {
+        animation: image-preview-exit var(--image-preview-exit);
       }
 
       [data-slot="image-preview-header"] {
@@ -84,5 +122,19 @@
         -webkit-user-drag: none;
       }
     }
+  }
+}
+
+[data-component="dialog-overlay"]:has(+ [data-dialog-layer] > [data-component="image-preview"]) {
+  background-color: transparent;
+}
+
+[data-image-preview-origin] {
+  visibility: hidden;
+}
+
+@keyframes image-preview-exit {
+  to {
+    visibility: visible;
   }
 }

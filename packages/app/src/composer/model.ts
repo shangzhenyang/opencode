@@ -330,10 +330,10 @@ export function createComposerModel(adapter: ComposerAdapter, options?: { queue?
     onContextRemove(item) {
       if (item.type === "file" && item.commentID) comments.remove(item.path, item.commentID)
     },
-    openAttachment: (attachment) => {
+    openAttachment: (attachment, origin) => {
       if (attachment.type !== "image") return
       void resolveBlobUrl(attachment.blob).then((src) => {
-        if (src) dialog.show(() => createComponent(ImagePreview, { src, alt: attachment.filename }))
+        if (src) dialog.show(() => createComponent(ImagePreview, { src, alt: attachment.filename, origin }))
       })
     },
     openContext(key) {

@@ -356,7 +356,10 @@ export function CurrentUserMessageDisplay(props: {
                     data-slot="user-message-attachment"
                     data-type="image"
                     data-clickable="true"
-                    onClick={() => dialog.show(() => <ImagePreview src={url()} alt={name()} />)}
+                    onClick={(event) => {
+                      const origin = event.currentTarget
+                      dialog.show(() => <ImagePreview src={url()} alt={name()} origin={origin} />)
+                    }}
                   >
                     <img data-slot="user-message-attachment-image" src={url()} alt={name()} />
                   </div>
