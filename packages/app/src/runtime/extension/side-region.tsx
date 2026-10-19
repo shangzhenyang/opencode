@@ -107,7 +107,7 @@ export function SideRegion(props: {
         <Show when={visible()}>
           <div
             data-slot="session-review-content"
-            class="h-full flex shrink-0"
+            class="h-full flex shrink-0 contain-strict"
             style={{ width: "var(--session-side-content-width, 100%)" }}
           >
             <Show when={tabsVisible()}>

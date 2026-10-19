@@ -108,19 +108,29 @@ function SessionScreenContent(props: {
     mobileCached: [],
   })
 
-  const [elements, setElements] = createStore<{
-    side?: HTMLDivElement
-  }>({})
-
   const sideVisible = createMemo(() => isDesktop() && screen.side.open())
+
+  // The chat keeps its open width as the far end of a close's travel.
+  const chatOpenWidth = createMemo<string>((previous) => (sideVisible() ? screen.panel.width() : previous), "100%")
+  let chat: HTMLDivElement | undefined
 
   const sideMotion = createPanelMotion({
     open: sideVisible,
-    layer: () => elements.side,
-    edge: "end",
     spring: panelSprings.side,
-    overshoot: 8,
     identity: session.layout.tabKey,
+    // The chat's real width moves the side panel's edge, whose contents keep their open width pinned to it.
+    paint: (closed) => {
+      if (!chat) return
+      const open = chatOpenWidth()
+
+      if (closed === 1) {
+        chat.style.width = "100%"
+
+        return
+      }
+
+      chat.style.width = closed === 0 ? open : `calc(${open} + (100% - ${open}) * ${closed})`
+    },
     onClosed: () => {
       setStore("sideRegionPresent", false)
       setStore("sideTabsPresent", false)
@@ -133,12 +143,6 @@ function SessionScreenContent(props: {
     toggle: () => session.layout.view().side.toggle(),
     spring: panelSprings.side,
   })
-
-  // The panel keeps its open size and contents while it slides out over the widened chat.
-  const sideWidth = createMemo<string>(
-    (previous) => (sideVisible() ? `calc(100% - ${screen.panel.width()} - 8px)` : previous),
-    "0px",
-  )
 
   const sideFileTree = createMemo<boolean>((previous) => (sideVisible() ? screen.files.open() : previous), false)
 
@@ -349,6 +353,7 @@ function SessionScreenContent(props: {
             </div>
           </Show>
           <div
+            ref={chat}
             class="@container relative z-10 min-w-0 shrink-0 flex flex-col min-h-0 h-full flex-1 md:flex-none"
             data-slot="session-chat-panel"
             data-scrollbar-hidden={store.timelineScrollbarHidden}
@@ -356,7 +361,6 @@ function SessionScreenContent(props: {
             onPointerDown={revealTimelineScrollbar}
             on:wheel={{ passive: true, handleEvent: revealTimelineScrollbar }}
             onKeyDown={revealTimelineScrollbar}
-            style={{ width: screen.panel.width() }}
           >
             <Show when={!!session.identity.params.id}>
               <SessionPanelFrame raised>
@@ -383,14 +387,12 @@ function SessionScreenContent(props: {
 
           <Show when={sideMotion.present() || store.sideTabsPresent}>
             <div
-              ref={(element) => setElements("side", element)}
               data-slot="session-side-panel-presence"
-              class="absolute inset-y-0 end-0 overflow-visible"
               classList={{
-                "z-20": sideMotion.present(),
-                "z-0 w-0 invisible pointer-events-none": !sideMotion.present(),
+                "relative z-0 min-w-0 h-full flex-1 overflow-visible": sideMotion.present(),
+                "absolute inset-y-0 end-0 z-0 w-0 invisible pointer-events-none overflow-visible":
+                  !sideMotion.present(),
               }}
-              style={{ width: sideMotion.present() ? sideWidth() : undefined }}
             >
               <div
                 data-slot="session-side-panel-content"

@@ -56,35 +56,25 @@ if (typeof window !== "undefined") {
 }
 
 /**
- * Opens and closes an edge panel without animating layout. Layout commits once, when the toggle happens; then the
- * panel's layer slides on a spring between its place and just past its edge, over the content on the way out.
- * `present` stays true until a close settles.
+ * Opens and closes an edge panel on a spring. `paint` receives how far closed the panel is, from 0 (open) to 1
+ * (closed), every frame of a flight and whenever a signal it reads changes at rest. It sizes the panel's real
+ * layout box, so the neighbouring content's edge follows the panel's edge on every frame. `present` stays true until
+ * a close settles.
  */
 export function createPanelMotion(input: {
   open: Accessor<boolean>
-  layer: Accessor<HTMLElement | undefined>
-  edge: "start" | "end"
   spring: () => DurationOptions
-  /** Extra distance past the layer's own width, in pixels. */
-  overshoot?: number
+  paint: (closed: number) => void
   /** A change shows the new state without motion, e.g. switching to another session's layout. */
   identity?: Accessor<unknown>
   onClosed?: () => void
 }) {
   const [present, setPresent] = createSignal(input.open())
-  // Percent of the travel still to go: 0 rests in place, 100 rests fully out.
+  // Percent closed, so the spring's rest threshold stays well under a pixel.
   const spring = new Spring(input.open() ? 0 : 100)
-  let sign = 1
   let stop: (() => void) | undefined
 
-  const paint = () => {
-    const element = input.layer()
-
-    if (!element) return
-    const away = spring.value * sign
-    element.style.transform =
-      away === 0 ? "" : `translateX(calc(${away}% + ${(away / 100) * (input.overshoot ?? 0)}px))`
-  }
+  const paint = () => input.paint(Math.min(1, Math.max(0, spring.value / 100)))
 
   const settle = () => {
     stop?.()
@@ -122,9 +112,6 @@ export function createPanelMotion(input: {
           return
         }
 
-        const rtl = getComputedStyle(input.layer() ?? document.documentElement).direction === "rtl"
-        sign = (input.edge === "start") !== rtl ? -1 : 1
-        paint()
         const tuning = input.spring()
         spring.omega = (2 * Math.PI) / tuning.duration
         spring.zeta = 1 - tuning.bounce
@@ -143,8 +130,8 @@ export function createPanelMotion(input: {
     ),
   )
 
-  // A layer that mounts mid-flight, such as the side panel after a close unmounted it, starts where the spring is.
-  createEffect(on(input.layer, paint))
+  // Repaints at rest when the open size changes, e.g. a resize drag or a window resize.
+  createEffect(paint)
 
   onCleanup(() => stop?.())
 

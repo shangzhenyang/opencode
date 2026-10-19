@@ -1253,18 +1253,13 @@ for (const direction of ["ltr", "rtl"] as const) {
     await expect.poll(() => toggle.boundingBox()).toEqual(closed)
     await expect(panel).toBeHidden()
 
-    // The panel slides in over its slot and out over the widened chat; check the settled geometry both ways.
-    const presence = page.locator('[data-slot="session-side-panel-presence"]')
-
+    // The chat's width springs; once the panel settles open, it fills the rest of the row beside the chat.
     for (const opened of [true, false]) {
       await toggle.click()
       await expect(toggle).toHaveAttribute("aria-expanded", String(opened))
       await expect(panel).toHaveAttribute("aria-hidden", String(!opened))
 
-      if (opened) {
-        await expect(presence).toHaveCSS("transform", "none")
-        await expectHeaderClearOfToggle(page, toggle)
-      }
+      if (opened) await expect(() => expectHeaderClearOfToggle(page, toggle)).toPass()
     }
 
     await expect(panel).toBeHidden()

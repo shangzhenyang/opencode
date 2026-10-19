@@ -3,6 +3,7 @@ import { createResizeObserver } from "@solid-primitives/resize-observer"
 import { useLocation } from "@solidjs/router"
 import { createEffect, on, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
+import { frameLoop } from "@opencode/ui/motion"
 import { useLayout } from "@/shell/state/layout"
 import type { SessionModel } from "../model"
 import { useSessionHashScroll } from "../use-session-hash-scroll"
@@ -65,9 +66,9 @@ export function createSessionTimelineInteraction(session: SessionModel) {
 
   let scrollMark = 0
   let messageMark = 0
-  let scrollStateFrame: number | undefined
+  let scrollStateFrame: (() => void) | undefined
   let scrollStateTarget: HTMLDivElement | undefined
-  let fillFrame: number | undefined
+  let fillFrame: (() => void) | undefined
   let historyContinuationFrame: number | undefined
   const historyRequests = new Set<string>()
   const visibleUserMessages = timeline.visibleUserMessages
@@ -113,27 +114,36 @@ export function createSessionTimelineInteraction(session: SessionModel) {
 
   const jumpThreshold = (element: HTMLDivElement) => Math.max(400, element.clientHeight)
 
-  const updateScrollState = (element: HTMLDivElement) => {
+  const measureScrollState = (element: HTMLDivElement) => {
     const max = element.scrollHeight - element.clientHeight
     const distance = max - element.scrollTop
     const overflow = max > 1
-    const jump = overflow && distance > jumpThreshold(element)
 
-    if (state.scroll.overflow === overflow && state.scroll.jump === jump) return
-    setState("scroll", { overflow, jump })
+    return { overflow, jump: overflow && distance > jumpThreshold(element) }
   }
 
+  // Reads in the shared frame loop's read phase, before any frame's writes, so a panel resizing the timeline on
+  // every frame does not force an extra layout here.
   const scheduleScrollState = (element: HTMLDivElement) => {
     scrollStateTarget = element
 
     if (scrollStateFrame !== undefined) return
-    scrollStateFrame = requestAnimationFrame(() => {
-      scrollStateFrame = undefined
-      const target = scrollStateTarget
-      scrollStateTarget = undefined
+    let next: { overflow: boolean; jump: boolean } | undefined
+    scrollStateFrame = frameLoop.addMeasured(
+      () => {
+        const target = scrollStateTarget
+        scrollStateTarget = undefined
+        next = target && measureScrollState(target)
+      },
+      () => {
+        scrollStateFrame = undefined
 
-      if (target) updateScrollState(target)
-    })
+        if (!next || (state.scroll.overflow === next.overflow && state.scroll.jump === next.jump)) return false
+        setState("scroll", next)
+
+        return false
+      },
+    )
   }
 
   const { clearMessageHash, scrollToMessage } = useSessionHashScroll({
@@ -252,18 +262,28 @@ export function createSessionTimelineInteraction(session: SessionModel) {
     void loadOlder()
   }
 
+  // Like the scroll state, measures in the shared frame loop's read phase.
   const fill = () => {
     if (fillFrame !== undefined) return
-    fillFrame = requestAnimationFrame(() => {
-      fillFrame = undefined
+    let short = false
+    fillFrame = frameLoop.addMeasured(
+      () => {
+        short =
+          !!session.identity.params.id &&
+          timeline.ready() &&
+          pinned() &&
+          !timeline.history.loading() &&
+          !!scroller &&
+          scroller.scrollHeight <= scroller.clientHeight + 1
+      },
+      () => {
+        fillFrame = undefined
 
-      if (!session.identity.params.id || !timeline.ready()) return
+        if (short && timeline.history.more()) void loadOlder()
 
-      if (!pinned() || timeline.history.loading() || !scroller) return
-
-      if (scroller.scrollHeight > scroller.clientHeight + 1 || !timeline.history.more()) return
-      void loadOlder()
-    })
+        return false
+      },
+    )
   }
 
   createEffect(
@@ -355,9 +375,9 @@ export function createSessionTimelineInteraction(session: SessionModel) {
   onCleanup(() => {
     if (historyContinuationFrame !== undefined) cancelAnimationFrame(historyContinuationFrame)
 
-    if (scrollStateFrame !== undefined) cancelAnimationFrame(scrollStateFrame)
+    scrollStateFrame?.()
 
-    if (fillFrame !== undefined) cancelAnimationFrame(fillFrame)
+    fillFrame?.()
   })
 
   return {

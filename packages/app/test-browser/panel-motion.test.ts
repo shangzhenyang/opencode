@@ -46,55 +46,71 @@ function settle() {
   for (let i = 0; i < 120 && frames.size; i++) frame()
 }
 
-// How far out the layer is, in percent of its width; 0 at rest in place.
-function away(element: HTMLElement) {
-  return Number(/translateX\(calc\((-?[\d.e-]+)%/.exec(element.style.transform)?.[1] ?? 0)
-}
-
 function setup(initial: boolean) {
-  const layer = document.createElement("div")
-  document.body.append(layer)
   const [open, setOpen] = createSignal(initial)
   const [identity, setIdentity] = createSignal("a")
+  const [size, setSize] = createSignal(200)
   const closed: number[] = []
+  const painted = { width: 0 }
 
   const motion = createRoot((dispose) => {
-    cleanups.push(dispose, () => layer.remove())
+    cleanups.push(dispose)
 
     return createPanelMotion({
       open,
-      layer: () => layer,
-      edge: "end",
       spring: () => ({ duration: 0.2, bounce: 0 }),
+      paint: (shut) => {
+        painted.width = size() * (1 - shut)
+      },
       identity,
       onClosed: () => closed.push(time),
     })
   })
 
-  return { layer, setOpen, setIdentity, closed, present: motion.present }
+  return { painted, setOpen, setIdentity, setSize, closed, present: motion.present }
 }
 
-it("slides a pointer toggle in from its edge and out again, present until the close settles", () => {
+it("sizes a pointer toggle open and closed on a spring, present until the close settles", () => {
   window.dispatchEvent(new Event("pointerdown"))
   const panel = setup(false)
   expect(panel.present()).toBe(false)
+  expect(panel.painted.width).toBe(0)
 
   panel.setOpen(true)
   expect(panel.present()).toBe(true)
-  expect(away(panel.layer)).toBe(100)
+  expect(panel.painted.width).toBe(0)
   frame()
-  expect(away(panel.layer)).toBeGreaterThan(0)
-  expect(away(panel.layer)).toBeLessThan(100)
+  expect(panel.painted.width).toBeGreaterThan(0)
+  expect(panel.painted.width).toBeLessThan(200)
   settle()
-  expect(panel.layer.style.transform).toBe("")
+  expect(panel.painted.width).toBe(200)
 
   panel.setOpen(false)
   frame()
   expect(panel.present()).toBe(true)
   expect(panel.closed).toEqual([])
   settle()
+  expect(panel.painted.width).toBe(0)
   expect(panel.present()).toBe(false)
   expect(panel.closed).toHaveLength(1)
+})
+
+it("moves the panel's size a little on every frame, with no jump at the start or settle", () => {
+  window.dispatchEvent(new Event("pointerdown"))
+  const panel = setup(false)
+  panel.setOpen(true)
+  const widths: number[] = []
+
+  for (let i = 0; i < 120 && frames.size; i++) {
+    frame()
+    widths.push(panel.painted.width)
+  }
+
+  const steps = widths.map((width, index) => width - (widths[index - 1] ?? 0))
+  expect(steps.every((step) => step >= 0)).toBe(true)
+  expect(Math.max(...steps)).toBeLessThan(60)
+  // The last moving frame lands within a pixel of rest.
+  expect(200 - widths.findLast((width) => width < 200)!).toBeLessThan(1)
 })
 
 it("turns around mid-flight from where it is", () => {
@@ -104,15 +120,26 @@ it("turns around mid-flight from where it is", () => {
   frame()
   frame()
   frame()
-  const before = away(panel.layer)
+  const before = panel.painted.width
 
   panel.setOpen(false)
-  expect(away(panel.layer)).toBe(before)
+  expect(panel.painted.width).toBe(before)
   frame()
-  // Still carrying its inward velocity, it does not jump back out.
-  expect(Math.abs(away(panel.layer) - before)).toBeLessThan(15)
+  // Still carrying its opening velocity, it does not jump back closed.
+  expect(Math.abs(panel.painted.width - before)).toBeLessThan(30)
   settle()
   expect(panel.present()).toBe(false)
+  expect(panel.painted.width).toBe(0)
+})
+
+it("repaints at rest when the open size changes, like a resize drag", () => {
+  window.dispatchEvent(new Event("pointerdown"))
+  const panel = setup(true)
+  expect(panel.painted.width).toBe(200)
+
+  panel.setSize(260)
+  expect(panel.painted.width).toBe(260)
+  expect(frames.size).toBe(0)
 })
 
 it("applies keyboard toggles at once", () => {
@@ -120,6 +147,7 @@ it("applies keyboard toggles at once", () => {
   const panel = setup(true)
 
   panel.setOpen(false)
+  expect(panel.painted.width).toBe(0)
   expect(panel.present()).toBe(false)
   expect(panel.closed).toHaveLength(1)
   expect(frames.size).toBe(0)
@@ -139,6 +167,7 @@ it("shows another layout's state without motion or a close", () => {
   panel.setOpen(false)
   panel.setIdentity("c")
   expect(panel.present()).toBe(false)
-  expect(panel.layer.style.transform).not.toBe("")
+  expect(panel.painted.width).toBe(0)
+  expect(panel.closed).toHaveLength(1)
   expect(frames.size).toBe(0)
 })

@@ -27,20 +27,24 @@ export default function Layout(props: ParentProps) {
   const [state, setState] = createStore<{
     tabsWidth: number
     tabsMount: HTMLElement | undefined
-    tabsLayer: HTMLElement | undefined
+    tabsAside: HTMLElement | undefined
   }>({
     tabsWidth: 260,
     tabsMount: undefined,
-    tabsLayer: undefined,
+    tabsAside: undefined,
   })
 
   const verticalTabs = () => preferences.appearance.tabLayout() === "vertical" && !mobile()
 
   const sidebarMotion = createPanelMotion({
     open: preferences.appearance.sidebarOpen,
-    layer: () => state.tabsLayer,
-    edge: "start",
     spring: panelSprings.sidebar,
+    // The aside's real width moves main's edge with the sidebar's; its contents keep their width, pinned to that edge.
+    paint: (closed) => {
+      const aside = state.tabsAside
+
+      if (aside) aside.style.width = `${state.tabsWidth * (1 - closed)}px`
+    },
   })
 
   replayPanelToggle({
@@ -91,19 +95,14 @@ export default function Layout(props: ParentProps) {
               id="vertical-tabs-sidebar"
               data-slot="vertical-tabs-sidebar"
               data-state={preferences.appearance.sidebarOpen() ? "open" : "closed"}
+              ref={(element) => setState("tabsAside", element)}
               class="relative z-10 h-full min-h-0 shrink-0"
-              style={{ width: preferences.appearance.sidebarOpen() ? `${state.tabsWidth}px` : "0px" }}
               inert={!preferences.appearance.sidebarOpen()}
             >
-              <div
-                ref={(element) => setState("tabsLayer", element)}
-                class="absolute inset-y-0 start-0 overflow-hidden"
-                classList={{ invisible: !sidebarMotion.present() }}
-                style={{ width: `${state.tabsWidth}px` }}
-              >
+              <div class="absolute inset-0 overflow-hidden" classList={{ invisible: !sidebarMotion.present() }}>
                 <div
                   ref={(element) => setState("tabsMount", element)}
-                  class="flex h-full min-h-0 flex-col bg-v2-background-bg-deep pe-0.5 ps-2.5 pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]"
+                  class="absolute inset-y-0 end-0 contain-strict flex min-h-0 flex-col bg-v2-background-bg-deep pe-0.5 ps-2.5 pb-[var(--shell-bottom-inset,8px)] pt-[var(--shell-top-inset,8px)]"
                   style={{
                     width: `${state.tabsWidth}px`,
                     "padding-bottom": "max(10px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
