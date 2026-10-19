@@ -1,13 +1,60 @@
+import { Spring } from "../motion"
+
 /**
- * Geometry for flying a preview image between its place on the page and the open preview.
+ * Geometry and motion for flying a preview image between its place on the page and the open preview.
  *
  * The flying image is laid out once at `base` and only ever transformed, so the flight runs on transform and
  * clip-path alone. A frame says where the whole image would be drawn (`image`, always the image's own aspect ratio),
- * which part of it shows (`clip`), and the corner radius of that visible part, all in viewport pixels.
+ * which part of it shows (`clip`), and the corner radius of that visible part, all in viewport pixels. Each of those
+ * numbers rides its own spring, so the visible corners and crop move evenly on screen.
  */
+
 export type Box = { x: number; y: number; width: number; height: number }
 
 export type FlightFrame = { image: Box; clip: Box; radius: number }
+
+/**
+ * Claude's preview, fitted frame by frame: one critically damped spring for both directions, launched with a push of
+ * this many times the remaining distance per second. A spring from rest starts too slowly to match.
+ */
+export const FLIGHT_SPRING = { duration: 0.2, bounce: 0 }
+
+export const KICK = { open: 14, close: 32.5 }
+
+/** A flight frame with one spring per edge, so heading somewhere new mid-flight keeps the velocity it already has. */
+export function createFlight(frame: FlightFrame) {
+  const springs = values(frame).map((value) => Spring.fromDuration(value, FLIGHT_SPRING))
+
+  return {
+    /** Heads for `frame`, adding a launch velocity of `kick` times the remaining distance per second. */
+    to(frame: FlightFrame, kick: number) {
+      values(frame).forEach((target, index) => {
+        const spring = springs[index]
+        spring.set(target, { velocity: spring.velocity + kick * (target - spring.value) })
+      })
+    },
+    /** Advances `dt` seconds; true until every edge has landed. */
+    step(dt: number) {
+      springs.forEach((spring) => spring.step(dt))
+
+      // Within a quarter pixel and barely moving is landed: the rest of the way would not show, so snap it.
+      if (springs.some((spring) => Math.abs(spring.value - spring.target) > 0.25 || Math.abs(spring.velocity) > 4))
+        return true
+      springs.forEach((spring) => spring.snap(spring.target))
+
+      return false
+    },
+    frame(): FlightFrame {
+      const [x, y, width, height, clipX, clipY, clipWidth, clipHeight, radius] = springs.map((spring) => spring.value)
+
+      return {
+        image: { x, y, width, height },
+        clip: { x: clipX, y: clipY, width: clipWidth, height: clipHeight },
+        radius,
+      }
+    },
+  }
+}
 
 /** Where an element draws its whole image for an `object-fit`, centered as with the default `object-position`. */
 export function fittedImage(box: Box, natural: { width: number; height: number }, fit: string): Box {
@@ -32,23 +79,6 @@ export function elementFrame(box: Box, natural: { width: number; height: number 
   const image = fittedImage(box, natural, fit)
 
   return { image, clip: intersect(image, box), radius }
-}
-
-/**
- * Keyframes for a flight from one frame to another. The clip and radius live in the image's own coordinates, which
- * shrink with it, so a straight interpolation between the two ends would bulge them mid-flight; sampling the screen-space
- * path keeps the visible corners and crop moving evenly.
- */
-export function flightKeyframes(base: Box, from: FlightFrame, to: FlightFrame, steps = 16) {
-  return Array.from({ length: steps + 1 }, (_, index) => flightStyle(base, lerpFrame(from, to, index / steps)))
-}
-
-export function lerpFrame(from: FlightFrame, to: FlightFrame, progress: number): FlightFrame {
-  return {
-    image: lerpBox(from.image, to.image, progress),
-    clip: lerpBox(from.clip, to.clip, progress),
-    radius: lerp(from.radius, to.radius, progress),
-  }
 }
 
 /** Styles that move an image laid out at `base` to `frame`, with `transform-origin: 0 0`. */
@@ -77,17 +107,18 @@ export function intersect(a: Box, b: Box): Box {
   }
 }
 
-function lerpBox(from: Box, to: Box, progress: number): Box {
-  return {
-    x: lerp(from.x, to.x, progress),
-    y: lerp(from.y, to.y, progress),
-    width: lerp(from.width, to.width, progress),
-    height: lerp(from.height, to.height, progress),
-  }
-}
-
-function lerp(from: number, to: number, progress: number) {
-  return from * (1 - progress) + to * progress
+function values(frame: FlightFrame) {
+  return [
+    frame.image.x,
+    frame.image.y,
+    frame.image.width,
+    frame.image.height,
+    frame.clip.x,
+    frame.clip.y,
+    frame.clip.width,
+    frame.clip.height,
+    frame.radius,
+  ]
 }
 
 function px(value: number) {

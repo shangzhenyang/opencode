@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { elementFrame, fittedImage, flightKeyframes, flightStyle, lerpFrame } from "./image-flight"
+import { createFlight, elementFrame, fittedImage, flightStyle, KICK, type FlightFrame } from "./image-flight"
 
 // A 1600×900 screenshot.
 const natural = { width: 1600, height: 900 }
@@ -73,48 +73,54 @@ describe("flightStyle", () => {
   })
 })
 
-describe("flightKeyframes", () => {
-  const base = { x: 200, y: 100, width: 800, height: 450 }
-  const preview = { image: base, clip: base, radius: 6 }
-  const thumbnail = elementFrame({ x: 980, y: 80, width: 58, height: 46 }, natural, "cover", 6)
+describe("createFlight", () => {
+  const box = (x: number, width: number) => ({ x, y: 100, width, height: width * 0.75 })
 
-  test("keeps the on-screen corner radius steady while the image shrinks", () => {
-    const radii = flightKeyframes(base, preview, thumbnail).map((frame) => {
-      const scale = Number(frame.transform.match(/scale\((.+)\)/)?.[1])
-      const local = Number(frame.clipPath.match(/round (.+)px/)?.[1])
-
-      return local * scale
-    })
-
-    radii.forEach((radius) => expect(radius).toBeCloseTo(6, 1))
+  const frame = (x: number, width: number, radius: number): FlightFrame => ({
+    image: box(x, width),
+    clip: box(x, width),
+    radius,
   })
 
-  test("starts and ends exactly on both frames", () => {
-    const frames = flightKeyframes(base, preview, thumbnail)
+  const thumbnail = frame(495, 285, 8)
 
-    expect(frames[0]).toEqual(flightStyle(base, preview))
-    expect(frames.at(-1)).toEqual(flightStyle(base, thumbnail))
+  const preview = frame(314, 651, 6)
+
+  const progress = (flight: ReturnType<typeof createFlight>) =>
+    (flight.frame().image.width - thumbnail.image.width) / (preview.image.width - thumbnail.image.width)
+
+  test("opens fast and settles without overshoot, like Claude's measured preview", () => {
+    const flight = createFlight(thumbnail)
+    flight.to(preview, KICK.open)
+    const path = Array.from({ length: 30 }, () => (flight.step(1 / 60), progress(flight)))
+
+    // Measured: 25% after one frame, 61% after three, 91% after seven.
+    expect(path[0]).toBeCloseTo(0.25, 1)
+    expect(path[2]).toBeCloseTo(0.61, 1)
+    expect(path[6]).toBeCloseTo(0.91, 1)
+    path.forEach((value) => expect(value).toBeLessThanOrEqual(1))
+    expect(flight.frame()).toEqual(preview)
   })
-})
 
-describe("lerpFrame", () => {
-  test("finds the frame part way through a flight, so a reversal starts from it", () => {
-    const from = {
-      image: { x: 0, y: 0, width: 100, height: 50 },
-      clip: { x: 0, y: 0, width: 100, height: 50 },
-      radius: 0,
-    }
+  test("turns around mid-flight from where it is, carrying its velocity", () => {
+    const flight = createFlight(thumbnail)
+    flight.to(preview, KICK.open)
+    Array.from({ length: 4 }, () => flight.step(1 / 60))
+    const turn = flight.frame()
+    flight.to(thumbnail, KICK.close)
 
-    const to = {
-      image: { x: 100, y: 50, width: 300, height: 150 },
-      clip: { x: 120, y: 50, width: 260, height: 150 },
-      radius: 8,
-    }
+    expect(flight.frame()).toEqual(turn)
 
-    expect(lerpFrame(from, to, 0.25)).toEqual({
-      image: { x: 25, y: 12.5, width: 150, height: 75 },
-      clip: { x: 30, y: 12.5, width: 140, height: 75 },
-      radius: 2,
-    })
+    // A fresh close launched from the same frame, at rest, moves further on its first frame than the reversed flight,
+    // which first has to cancel the outward velocity it still carries.
+    const fresh = createFlight(turn)
+    fresh.to(thumbnail, KICK.close)
+    flight.step(1 / 60)
+    fresh.step(1 / 60)
+    expect(turn.image.width - flight.frame().image.width).toBeGreaterThan(0)
+    expect(turn.image.width - flight.frame().image.width).toBeLessThan(turn.image.width - fresh.frame().image.width)
+
+    while (flight.step(1 / 60));
+    expect(flight.frame()).toEqual(thumbnail)
   })
 })

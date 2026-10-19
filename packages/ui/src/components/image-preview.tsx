@@ -8,7 +8,8 @@ import { useI18n } from "../context/i18n"
 import { Button } from "@opencode/ui/button"
 import { Icon } from "@opencode/ui/icon"
 import { IconButton } from "@opencode/ui/icon-button"
-import { elementFrame, flightKeyframes, intersect, lerpFrame, type Box, type FlightFrame } from "./image-flight"
+import { frameLoop, prefersReducedMotion, Spring } from "../motion"
+import { createFlight, elementFrame, flightStyle, intersect, KICK, type Box, type FlightFrame } from "./image-flight"
 import { clampView, detailScale, FIT_VIEW, maxScale, panBy, wheelZoomFactor, zoomAt, type ZoomView } from "./image-zoom"
 
 export interface ImagePreviewProps {
@@ -20,18 +21,14 @@ export interface ImagePreviewProps {
 
 const STEP = Math.SQRT2
 
-// Matched to Claude's desktop preview, measured frame by frame: a strong ease-out with no overshoot, and a close
-// about a third shorter than the open. The backdrop dims over the same time on a gentler curve.
-const OPEN = 280
+// Claude's backdrop dims from rest, more gently than the image flies: spring durations in seconds.
+const SCRIM = { open: 0.34, close: 0.2 }
 
-const CLOSE = 180
+// Without a flight (reduced motion, or no thumbnail to fly to), the preview only fades.
+const FADE = 0.15
 
-const FLIGHT_EASING = "cubic-bezier(0.2, 0.8, 0.2, 1)"
-
-const FADE = 150
-
-// How long the dialog stays mounted after a close starts, with a few frames' slack for the flight to land.
-const EXIT = CLOSE + 50
+// How long the dialog stays mounted after a close starts: the flight lands within about 250 ms.
+const EXIT = 320
 
 const CENTER = { x: 0, y: 0 }
 
@@ -42,13 +39,19 @@ export function ImagePreview(props: ImagePreviewProps) {
   let content!: HTMLDivElement
   let viewport!: HTMLDivElement
   let image!: HTMLImageElement
-  let flight!: HTMLImageElement
+  let standIn!: HTMLImageElement
   let close: HTMLButtonElement | undefined
   // Nothing shows until the image has loaded and the preview knows where it lands; while flying, a stand-in image
   // travels above the dialog in place of the real one.
   const [stage, setStage] = createSignal<"pending" | "flying" | "rest">("pending")
-  // The latest flight: where the stand-in is laid out (the flight only transforms and clips it), and its two ends.
-  let course: { at: Box; from: FlightFrame; to: FlightFrame; animation: Animation } | undefined
+  // The flight under way: where the stand-in is laid out (the flight only transforms and clips it), its springs, and
+  // what happens when it lands.
+  let course: { at: Box; flight: ReturnType<typeof createFlight>; landed: () => void } | undefined
+  const dim = Spring.fromDuration(0, { duration: SCRIM.open, bounce: 0 })
+  // Without a flight the panel and any stand-in fade with the backdrop; with one, the panel follows it more steeply,
+  // so it settles in around the image as it lands and clears before the image leaves.
+  let plain = false
+  let stop: (() => void) | undefined
   const [view, setView] = createSignal(FIT_VIEW)
   const [fitRatio, setFitRatio] = createSignal(1)
   const [drag, setDrag] = createSignal<{ id: number; x: number; y: number }>()
@@ -78,7 +81,7 @@ export function ImagePreview(props: ImagePreviewProps) {
     animation?.stop()
     goal = target
 
-    if (reduced()) return setView(target)
+    if (prefersReducedMotion()) return setView(target)
     const from = view()
     animation = animate(0, 1, {
       type: "spring",
@@ -99,52 +102,91 @@ export function ImagePreview(props: ImagePreviewProps) {
   useDialogLayer()?.setExitDuration(EXIT)
 
   const reveal = async () => {
-    await Promise.all([image.decode(), flight.decode()]).catch(() => undefined)
+    await Promise.all([image.decode(), standIn.decode()]).catch(() => undefined)
 
     if (stage() !== "pending" || !dialog.isOpen()) return
-    const from = reduced() ? undefined : originFrame()
+    const from = prefersReducedMotion() ? undefined : originFrame()
+    dimTo(1, from ? SCRIM.open : FADE)
 
-    // Fade from the hidden pending state before leaving it. The panel settles in around the image as it lands.
-    fade(content, 1, from ? OPEN * 0.6 : FADE, from ? OPEN * 0.4 : 0)
-    fade(scrim, 1, from ? OPEN : FADE)
+    if (!from) {
+      plain = true
+      paint()
+      setStage("rest")
 
-    if (!from) return setStage("rest")
-    const at = place(fitted())
+      return run()
+    }
+
+    const flight = createFlight(from)
+    flight.to(restFrame(), KICK.open)
+    course = { at: place(fitted()), flight, landed: () => setStage("rest") }
     hideOrigin()
+    paint()
     setStage("flying")
-    void fly(at, from, restFrame(), OPEN).then((done) => done && setStage("rest"))
+    run()
   }
 
   const dismiss = () => {
     animation?.stop()
 
     if (stage() === "pending") return
-    const to = reduced() ? undefined : originFrame()
-
-    // The panel clears before the image leaves it.
-    fade(content, 0, to ? CLOSE / 2 : FADE)
-    fade(scrim, 0, to ? CLOSE : FADE)
+    const to = prefersReducedMotion() ? undefined : originFrame()
+    dimTo(0, to ? SCRIM.close : FADE)
 
     if (!to) {
-      // A stand-in still opening keeps its course as it fades.
-      flight.animate({ opacity: [1, 0] }, { duration: FADE, easing: "ease", fill: "both" })
-      content.animate({ transform: ["none", "scale(0.96)"] }, { duration: FADE, easing: "ease", fill: "both" })
+      plain = true
 
-      return
+      return run()
     }
 
-    // A close mid-open turns around from the frame on screen.
-    const turning = stage() === "flying" ? course : undefined
-    const progress = turning?.animation.effect?.getComputedTiming().progress
-    const from = turning && progress != null ? lerpFrame(turning.from, turning.to, progress) : restFrame()
-    const at = turning?.at ?? place(fitted())
+    // A close mid-open turns the flight around where it is, keeping its velocity.
+    course ??= { at: place(fitted()), flight: createFlight(restFrame()), landed: showOrigin }
+    course.flight.to(to, KICK.close)
+    course.landed = showOrigin
     hideOrigin()
+    paint()
     setStage("flying")
-    void fly(at, from, to, CLOSE).then((done) => done && showOrigin())
+    run()
+  }
+
+  const dimTo = (target: number, duration: number) => {
+    dim.omega = (2 * Math.PI) / duration
+    dim.set(target)
+  }
+
+  // One job on the shared frame loop steps the flight and the backdrop together and writes them straight to the DOM.
+  const run = () => {
+    stop ??= frameLoop.add((dt) => {
+      const flying = course?.flight.step(dt)
+      dim.step(dt)
+      paint()
+
+      // The real image takes over only once the panel holding it is fully opaque, so its brightness doesn't step.
+      if (course && !flying && dim.resting) {
+        const landed = course.landed
+        course = undefined
+        landed()
+      }
+
+      if (course || !dim.resting) return true
+      stop = undefined
+
+      return false
+    })
+  }
+
+  const paint = () => {
+    scrim.style.opacity = String(dim.value)
+    content.style.opacity = String(plain ? dim.value : dim.value ** 2)
+    standIn.style.opacity = String(plain ? dim.value : 1)
+
+    if (!course) return
+    const style = flightStyle(course.at, course.flight.frame())
+    standIn.style.transform = style.transform
+    standIn.style.clipPath = style.clipPath
   }
 
   const place = (box: Box) => {
-    Object.assign(flight.style, {
+    Object.assign(standIn.style, {
       left: `${box.x}px`,
       top: `${box.y}px`,
       width: `${box.width}px`,
@@ -152,17 +194,6 @@ export function ImagePreview(props: ImagePreviewProps) {
     })
 
     return box
-  }
-
-  const fly = (at: Box, from: FlightFrame, to: FlightFrame, duration: number) => {
-    cancel(flight)
-    const animation = flight.animate(flightKeyframes(at, from, to), { duration, easing: FLIGHT_EASING, fill: "both" })
-    course = { at, from, to, animation }
-
-    return animation.finished.then(
-      () => true,
-      () => false,
-    )
   }
 
   // The image as shown now: zoomed and panned, and cropped to the viewport.
@@ -213,7 +244,10 @@ export function ImagePreview(props: ImagePreviewProps) {
   const hideOrigin = () => props.origin?.setAttribute("data-image-preview-origin", "")
   const showOrigin = () => props.origin?.removeAttribute("data-image-preview-origin")
 
-  onCleanup(showOrigin)
+  onCleanup(() => {
+    stop?.()
+    showOrigin()
+  })
 
   createEffect(
     on(
@@ -397,29 +431,9 @@ export function ImagePreview(props: ImagePreviewProps) {
           </div>
         </Kobalte.Content>
       </div>
-      <img data-slot="image-preview-flight" src={props.src} alt="" aria-hidden="true" ref={flight} />
+      <img data-slot="image-preview-flight" src={props.src} alt="" aria-hidden="true" ref={standIn} />
     </div>
   )
-}
-
-function reduced() {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches
-}
-
-/** Animates opacity from wherever an earlier fade left the element. */
-function fade(element: HTMLElement, opacity: number, duration: number, delay = 0) {
-  const from = getComputedStyle(element).opacity
-
-  cancel(element)
-  element.animate({ opacity: [from, String(opacity)] }, { duration, delay, easing: "ease", fill: "both" })
-}
-
-/** Stops this preview's own animations, leaving CSS ones such as the content's exit hold to Kobalte. */
-function cancel(element: HTMLElement) {
-  element
-    .getAnimations()
-    .filter((running) => !(running instanceof CSSAnimation))
-    .forEach((running) => running.cancel())
 }
 
 function shortcut(key: string) {
