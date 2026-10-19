@@ -7,7 +7,6 @@ import createPresence from "solid-presence"
 import { Composer } from "@/composer/composer"
 import { ComposerDropzone } from "@/composer/dropzone"
 import type { ComposerModel } from "@/composer/model"
-import { PromptGitStatus, PromptWorkspaceSelector } from "@/new-session/workspace/selector"
 import {
   PromptProjectAddButton,
   PromptProjectSelector,
@@ -24,10 +23,6 @@ import { NewSessionWordmark } from "./wordmark"
 
 const providerTipDismissalDuration = 30 * 24 * 60 * 60 * 1000
 
-export const WorkspaceOnboardingSchema = Persistence.struct({
-  used: Schema.Boolean,
-})
-
 export const ProviderTipSchema = Persistence.struct({
   dismissedAt: Schema.Finite,
 })
@@ -39,18 +34,6 @@ export function NewSessionView(props: {
   project: PromptProjectController
   workspace: NewSessionWorkspaceController
 }) {
-  const [onboarding, setOnboarding, , onboardingReady] = persisted(
-    Persist.global("workspace-onboarding"),
-    WorkspaceOnboardingSchema,
-    { used: false },
-  )
-
-  const select = (value: string) => {
-    props.workspace.selection.set(value)
-
-    if (value !== "main") setOnboarding("used", true)
-  }
-
   const workspaceDirectory = () => {
     const value = props.workspace.selection.value()
 
@@ -78,26 +61,6 @@ export function NewSessionView(props: {
               >
                 <Show when={props.project.selected()} fallback={<PromptProjectAddButton controller={props.project} />}>
                   <PromptProjectSelector controller={props.project} placement="bottom-start" />
-                  <Show
-                    when={props.workspace.bar.visible()}
-                    fallback={
-                      <PromptGitStatus branch={props.workspace.bar.branch()} noGit={!props.workspace.project.git()} />
-                    }
-                  >
-                    <PromptWorkspaceSelector
-                      value={props.workspace.selection.value()}
-                      projectRoot={props.workspace.project.root()}
-                      workspaces={props.workspace.project.workspaces()}
-                      branches={props.workspace.project.branches()}
-                      branch={props.workspace.bar.branch()}
-                      onboarding={onboardingReady() && !onboarding.used}
-                      onChange={select}
-                      onCreate={props.workspace.selection.create}
-                      onSearch={props.workspace.project.searchBranches}
-                      onDone={props.composer.restoreFocus}
-                      onViewAll={props.workspace.project.openAll}
-                    />
-                  </Show>
                   <div class="flex min-w-0 flex-1 basis-0 justify-end pe-1.5 ps-3" title={workspaceDirectory()}>
                     <span class="truncate-start">
                       <bdi dir="ltr">{workspaceDirectory()}</bdi>
@@ -117,7 +80,7 @@ export function NewSessionView(props: {
             props.workspace.selection.value() !== "create" &&
             props.workspace.project.managed() === 0
           }
-          onWorkspace={() => select("create")}
+          onWorkspace={() => props.workspace.selection.set("create")}
         />
       </div>
     </div>

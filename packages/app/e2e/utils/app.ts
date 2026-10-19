@@ -36,7 +36,7 @@ export async function expectPath(page: Page, href: string) {
 export type TabSeed =
   | string
   | { session: string; server?: string }
-  | { draft: string; directory: string; server?: string }
+  | { draft: string; directory: string; server?: string; worktree?: string }
 
 export type SeedInput = {
   servers?: (string | { url: string; name?: string })[]
@@ -130,7 +130,13 @@ function tabEntry(tab: TabSeed) {
 
   if ("session" in tab) return { type: "session", server: tab.server ?? SERVER, sessionId: tab.session }
 
-  return { type: "draft", draftID: tab.draft, server: tab.server ?? SERVER, directory: tab.directory }
+  return {
+    type: "draft",
+    draftID: tab.draft,
+    server: tab.server ?? SERVER,
+    directory: tab.directory,
+    worktree: tab.worktree,
+  }
 }
 
 export function project(input: { id: string; directory: string; name?: string } & Record<string, unknown>) {

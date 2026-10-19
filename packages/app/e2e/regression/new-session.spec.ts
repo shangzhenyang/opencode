@@ -281,7 +281,6 @@ for (const row of [
 
     if (row.followUp) return
     await expect(page.getByText("Failed to create worktree", { exact: true })).toBeVisible()
-    await expect(page.getByRole("button", { name: "New worktree", exact: true })).toBeVisible()
     await expect(pending.message).toHaveCount(0)
     await expect(tabLink(page, pending.sessionID)).toHaveCount(0)
     expect(mock.creates).toEqual([])
@@ -298,7 +297,9 @@ test("retains the draft and reuses the created workspace after session creation 
   await expect(page.getByText("Failed to create session", { exact: true })).toBeVisible()
   await expect(editor(page)).toHaveText(text)
   await expect(submit(page)).toBeEnabled()
-  await expect(page.getByRole("button", { name: "pending-workspace", exact: true })).toBeVisible()
+  await expect(
+    page.locator('[data-component="new-session-footer"]').getByText(workspace, { exact: true }),
+  ).toBeVisible()
   await expect(pending.shimmer).toHaveCount(0)
   await expect(pending.message).toHaveCount(0)
   expect(mock.creates).toEqual([expect.objectContaining({ id: pending.sessionID, location: { directory: workspace } })])
@@ -346,7 +347,6 @@ test("restores the draft after closing and revisiting a pending session that fai
   await expect(page.getByText("Failed to create worktree", { exact: true })).toBeVisible()
   await expect(editor(page)).toHaveText(`${text}\n\n${followUp}`)
   await expect(submit(page)).toBeEnabled()
-  await expect(page.getByRole("button", { name: "New worktree", exact: true })).toBeVisible()
   await expect(page.locator(`[data-titlebar-tab-link][href="${draftHref(draftID)}"]`)).toHaveCount(1)
   await expect(tab).toHaveCount(0)
   await expect(pending.message).toHaveCount(0)

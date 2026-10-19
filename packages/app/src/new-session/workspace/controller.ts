@@ -1,4 +1,3 @@
-import { debounce } from "@solid-primitives/scheduled"
 import { createEffect, createMemo, createResource, onCleanup } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useWorkspaceLocation } from "@/workspaces/location"
@@ -53,7 +52,6 @@ export function createNewSessionWorkspaceController(input: {
   selectedBranch: () => string | undefined
   setSelectedWorktree: (worktree: string | undefined) => void
   setSelectedBranch: (branch: string | undefined) => void
-  onViewAll: () => void
 }) {
   const sdk = useWorkspaceLocation()
   const serverSDK = useServerSDK()
@@ -62,11 +60,8 @@ export function createNewSessionWorkspaceController(input: {
   const tabs = useTabs()
 
   const [state, setState] = createStore({
-    search: "",
     existing: undefined as { projectID: string; directory: string } | undefined,
   })
-
-  const searchBranches = debounce((search: string) => setState("search", search.trim()), 100)
 
   const currentProject = createMemo(() => {
     const projectID = data.location.info({ directory: sdk().directory })?.project.id
@@ -183,15 +178,6 @@ export function createNewSessionWorkspaceController(input: {
 
   const projectRoot = createMemo(() => currentProject()?.worktree ?? sdk().directory)
 
-  const [branches] = createResource(
-    () => (visible() ? { directory: projectRoot(), search: state.search } : undefined),
-    ({ directory, search }) =>
-      serverSDK.api.vcs
-        .branch.list({ location: { directory }, search, limit: 50 })
-        .then((response) => ({ directory, search, data: response.data }))
-        .catch(() => ({ directory, search, data: [] })),
-  )
-
   createEffect(() => {
     void Promise.all([
       data.location.syncInfo({ directory: sdk().directory }),
@@ -271,31 +257,10 @@ export function createNewSessionWorkspaceController(input: {
       remember,
       set: select,
       cycle: () => select(cycleNewSessionWorktree({ current: value(), existing: existing() })),
-      create: (branch: string) => {
-        input.setSelectedBranch(branch)
-        input.setSelectedWorktree("create")
-        remember("create")
-      },
     },
     project: {
       root: projectRoot,
-      workspaces: worktreeDirectories,
       managed: managedWorktrees,
-      git: visible,
-      branches: () => {
-        const current = data.location.vcs.info({ directory: sdk().directory })?.branch.current
-        const loaded = branches.latest
-        const list = loaded?.directory === projectRoot() ? loaded.data : []
-
-        return [
-          ...new Set([
-            ...list,
-            ...(current && current.toLowerCase().includes(state.search.toLowerCase()) ? [current] : []),
-          ]),
-        ].slice(0, 50)
-      },
-      searchBranches,
-      openAll: input.onViewAll,
     },
     bar: {
       visible,

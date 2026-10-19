@@ -84,7 +84,7 @@ export async function openDraft(page: Page, input: WorkspaceInput & { draftID?: 
   return { ...workspace, draftID, editor }
 }
 
-// Opens a draft on the local project with "New worktree" selected. Worktree creation stays pending until the test
+// Opens a draft on the local project with a new worktree selected. Worktree creation stays pending until the test
 // resolves `worktree`; POST order (`worktree`, `session`, `prompt`), worktree requests, session creates and prompts are
 // recorded. The draft tab comes first, then a tab per session.
 export async function openWorktreeDraft(page: Page, input: WorkspaceInput & { draftID?: string }) {
@@ -128,15 +128,15 @@ export async function openWorktreeDraft(page: Page, input: WorkspaceInput & { dr
 
       return input.onSessionCreate?.(body, attempt)
     },
-    seed: { tabs: [{ draft: draftID, directory }, ...sessions.map((item) => item.id)], ...input.seed },
+    seed: {
+      tabs: [{ draft: draftID, directory, worktree: "create" }, ...sessions.map((item) => item.id)],
+      ...input.seed,
+    },
   })
 
   await page.goto(draftHref(draftID))
   const editor = page.locator('[data-component="composer-editor"]')
   await expect(editor).toBeVisible({ timeout: APP_READY_TIMEOUT })
-  await page.getByRole("button", { name: "Local", exact: true }).click()
-  await page.getByRole("menuitem", { name: "New worktree", exact: true }).click()
-  await expect(page.getByRole("button", { name: "New worktree", exact: true })).toBeVisible()
   await expect(editor).toBeEditable()
 
   return { ...workspace, draftID, editor, worktree, calls, worktreeRequests, creates, prompts }
