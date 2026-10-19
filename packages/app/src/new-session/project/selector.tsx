@@ -497,7 +497,7 @@ export function PromptProjectAddButton(props: { controller: PromptProjectControl
     <button
       data-action="prompt-project"
       type="button"
-      class={`${projectTriggerClass} hover:bg-v2-background-bg-layer-03`}
+      class={`${projectTriggerClass} hover:bg-v2-overlay-simple-overlay-hover`}
       onClick={() => props.controller.add()}
     >
       <Icon name="folder-add-left" size="small" class="shrink-0 text-v2-icon-icon-muted" />
@@ -507,7 +507,7 @@ export function PromptProjectAddButton(props: { controller: PromptProjectControl
 }
 
 const projectTriggerClass =
-  "flex h-6 min-w-0 max-w-[203px] items-center gap-1.5 rounded-md bg-v2-background-bg-layer-02 ps-1 pe-2 text-v2-text-text-muted transition-colors focus-visible:bg-v2-background-bg-layer-03 focus-visible:outline-none"
+  "flex h-6 min-w-0 max-w-[203px] items-center gap-1.5 rounded-md ps-1 pe-2 text-v2-text-text-muted transition-colors focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
 
 function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptProjectController }) {
   const [local, rest] = splitProps(props, ["controller", "class", "classList", "onClick", "onKeyDown"])
@@ -521,8 +521,8 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
       class={projectTriggerClass}
       classList={{
         ...local.classList,
-        "hover:bg-v2-background-bg-layer-03": !local.controller.open(),
-        "bg-v2-background-bg-layer-03": local.controller.open(),
+        "hover:bg-v2-overlay-simple-overlay-hover": !local.controller.open(),
+        "bg-v2-overlay-simple-overlay-pressed": local.controller.open(),
       }}
       onClick={local.onClick ?? (() => local.controller.setOpen(true))}
       onKeyDown={(event) => {
