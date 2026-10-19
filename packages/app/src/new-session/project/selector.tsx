@@ -497,15 +497,17 @@ export function PromptProjectAddButton(props: { controller: PromptProjectControl
     <button
       data-action="prompt-project"
       type="button"
-      class="flex h-7 min-w-0 max-w-[160px] items-center gap-1.5 rounded-sm px-2 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-faint transition-colors hover:bg-v2-overlay-simple-overlay-hover focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
+      class={`${projectTriggerClass} hover:bg-v2-background-bg-layer-03`}
       onClick={() => props.controller.add()}
     >
       <Icon name="folder-add-left" size="small" class="shrink-0 text-v2-icon-icon-muted" />
       <span class="min-w-0 truncate leading-5">{props.controller.labels.new()}</span>
-      <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
     </button>
   )
 }
+
+const projectTriggerClass =
+  "flex h-6 min-w-0 max-w-[203px] items-center gap-1.5 rounded-md bg-v2-background-bg-layer-02 ps-1 pe-2 text-v2-text-text-muted transition-colors focus-visible:bg-v2-background-bg-layer-03 focus-visible:outline-none"
 
 function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptProjectController }) {
   const [local, rest] = splitProps(props, ["controller", "class", "classList", "onClick", "onKeyDown"])
@@ -516,12 +518,11 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
       {...rest}
       data-action="prompt-project"
       type="button"
-      class="flex h-7 min-w-0 max-w-[203px] items-center gap-1.5 rounded-sm px-1.5 transition-colors focus-visible:bg-v2-overlay-simple-overlay-hover focus-visible:outline-none"
+      class={projectTriggerClass}
       classList={{
         ...local.classList,
-        "hover:bg-v2-overlay-simple-overlay-hover": !local.controller.open(),
-        "bg-v2-overlay-simple-overlay-pressed": local.controller.open(),
-        "text-v2-text-text-muted": local.controller.open(),
+        "hover:bg-v2-background-bg-layer-03": !local.controller.open(),
+        "bg-v2-background-bg-layer-03": local.controller.open(),
       }}
       onClick={local.onClick ?? (() => local.controller.setOpen(true))}
       onKeyDown={(event) => {
@@ -550,7 +551,6 @@ function ProjectTrigger(props: ComponentProps<"button"> & { controller: PromptPr
       <span class="min-w-0 truncate leading-5">
         {project() ? displayName(project()!) : local.controller.labels.new()}
       </span>
-      <Icon name="chevron-down" size="small" class="shrink-0 text-v2-icon-icon-muted" />
     </button>
   )
 }

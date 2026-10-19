@@ -83,9 +83,6 @@ export function PromptWorkspaceSelector(props: {
 
   return (
     <>
-      <Show when={!summary()}>
-        <span class="hidden select-none opacity-50 sm:inline mx-1">/</span>
-      </Show>
       <Tooltip
         appearance={props.onboarding ? "large" : undefined}
         placement="top"

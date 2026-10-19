@@ -51,6 +51,12 @@ export function NewSessionView(props: {
     if (value !== "main") setOnboarding("used", true)
   }
 
+  const workspaceDirectory = () => {
+    const value = props.workspace.selection.value()
+
+    return value === "main" || value === "create" ? props.workspace.project.root() : value
+  }
+
   return (
     <div class="@container relative flex flex-col min-h-0 h-full flex-1">
       <div
@@ -64,22 +70,18 @@ export function NewSessionView(props: {
         <div class="absolute inset-x-0 top-[25.375%] flex justify-center px-6">
           <div class={NEW_SESSION_CONTENT_WIDTH}>
             <NewSessionWordmark />
-            <div class="mt-8 flex flex-col gap-8">
-              <Composer model={props.composer} />
-              <Show when={props.project.empty()}>
-                <PromptProjectAddButton controller={props.project} />
-              </Show>
-              <Show when={props.project.selected()}>
-                <div class="flex min-h-7 min-w-0 flex-row flex-wrap items-center justify-center gap-0 text-v2-text-text-faint">
-                  <PromptProjectSelector controller={props.project} placement="bottom" />
+            <div class="mt-8 rounded-xl border border-v2-border-border-base bg-v2-background-bg-deep">
+              <Composer model={props.composer} borderUnderlay />
+              <div
+                data-component="new-session-footer"
+                class="flex h-9 min-w-0 items-center gap-1 px-1.5 text-[13px] font-[440] leading-5 tracking-[-0.04px] text-v2-text-text-faint"
+              >
+                <Show when={props.project.selected()} fallback={<PromptProjectAddButton controller={props.project} />}>
+                  <PromptProjectSelector controller={props.project} placement="bottom-start" />
                   <Show
                     when={props.workspace.bar.visible()}
                     fallback={
-                      <PromptGitStatus
-                        branch={props.workspace.bar.branch()}
-                        noGit={!props.workspace.project.git()}
-                        class="ms-1"
-                      />
+                      <PromptGitStatus branch={props.workspace.bar.branch()} noGit={!props.workspace.project.git()} />
                     }
                   >
                     <PromptWorkspaceSelector
@@ -96,8 +98,13 @@ export function NewSessionView(props: {
                       onViewAll={props.workspace.project.openAll}
                     />
                   </Show>
-                </div>
-              </Show>
+                  <div class="flex min-w-0 flex-1 basis-0 justify-end pe-1.5 ps-3" title={workspaceDirectory()}>
+                    <span class="truncate-start">
+                      <bdi dir="ltr">{workspaceDirectory()}</bdi>
+                    </span>
+                  </div>
+                </Show>
+              </div>
             </div>
           </div>
         </div>
