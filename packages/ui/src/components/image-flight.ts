@@ -1,4 +1,4 @@
-import { Spring } from "../motion"
+import { Spring, type DurationOptions } from "../motion"
 
 /**
  * Geometry and motion for flying a preview image between its place on the page and the open preview.
@@ -26,10 +26,12 @@ export function createFlight(frame: FlightFrame) {
   const springs = values(frame).map((value) => Spring.fromDuration(value, FLIGHT_SPRING))
 
   return {
-    /** Heads for `frame`, adding a launch velocity of `kick` times the remaining distance per second. */
-    to(frame: FlightFrame, kick: number) {
+    /** Heads for `frame` on `tuning`, adding a launch velocity of `kick` times the remaining distance per second. */
+    to(frame: FlightFrame, kick: number, tuning: DurationOptions = FLIGHT_SPRING) {
       values(frame).forEach((target, index) => {
         const spring = springs[index]
+        spring.omega = (2 * Math.PI) / tuning.duration
+        spring.zeta = 1 - tuning.bounce
         spring.set(target, { velocity: spring.velocity + kick * (target - spring.value) })
       })
     },

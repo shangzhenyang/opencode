@@ -37,7 +37,7 @@ export function mountMotionPanel(container: HTMLElement, options: { title?: stri
 
       if (item.kind === "toggle") return toggle(item.initial, meta)
 
-      return knob(item.initial, { ...meta, min: item.min, max: item.max, step: item.step, unit: "×" })
+      return knob(item.initial, { ...meta, min: item.min, max: item.max, step: item.step, unit: item.unit ?? "×" })
     }
 
     const apply = (item: MotionKnob, value: SpringValue | boolean | number) => {

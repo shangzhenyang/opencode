@@ -1,10 +1,11 @@
 import { useDialog } from "@opencode/ui/context/dialog"
 import { useI18n } from "@opencode/ui/context/i18n"
-import { ImagePreview } from "@opencode/ui/image-preview"
+import { ImagePreview, replayImagePreview } from "@opencode/ui/image-preview"
 
 export function createImagePreview() {
   const dialog = useDialog()
   const i18n = useI18n()
+  replayImagePreview()
 
   const open = (event: MouseEvent | KeyboardEvent) => {
     const image = event.currentTarget

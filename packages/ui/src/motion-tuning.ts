@@ -16,7 +16,7 @@ type Knob<Kind extends string, Value> = {
 export type MotionKnob =
   | Knob<"spring", DurationOptions>
   | Knob<"toggle", boolean>
-  | (Knob<"number", number> & { min: number; max: number; step: number })
+  | (Knob<"number", number> & { min: number; max: number; step: number; unit?: string })
 
 export type MotionAction = { id: string; label: string; group: string; run: () => void }
 
@@ -63,6 +63,35 @@ export const motionTuning = {
     })
 
     return () => knob.value
+  },
+  /**
+   * A tuned number. A `time` of "duration" is seconds, stretched by the global speed and slow motion; "rate" is per
+   * second, so it shrinks by the same factor.
+   */
+  number(
+    id: string,
+    meta: Meta & { value: number; min: number; max: number; step: number; unit?: string; time?: "duration" | "rate" },
+  ) {
+    const knob = register({
+      kind: "number",
+      id,
+      label: meta.label,
+      group: meta.group,
+      initial: meta.value,
+      value: number(id, meta.value),
+      min: meta.min,
+      max: meta.max,
+      step: meta.step,
+      unit: meta.unit,
+    })
+
+    return () => {
+      if (meta.time === "duration") return knob.value * timeScale()
+
+      if (meta.time === "rate") return knob.value / timeScale()
+
+      return knob.value
+    }
   },
   /** A button that replays the motion it names. Returns its removal, for actions bound to a mounted surface. */
   action(action: MotionAction) {
@@ -114,6 +143,11 @@ const slow = register({
 })
 
 export const motionGlobals = { speed, slow }
+
+// How many times longer motion takes than tuned.
+function timeScale() {
+  return (slow.value ? 4 : 1) / speed.value
+}
 
 function register<K extends MotionKnob>(knob: K) {
   knobs.set(knob.id, knob)
